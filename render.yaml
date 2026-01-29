@@ -1,0 +1,13 @@
+capex-tracker/
+├── app/                    # Streamlit UI
+│   ├── app.py              # main Streamlit file
+│   ├── pages/              # multi-page if needed
+│   └── requirements.txt    # streamlit, pandas, plotly, sqlalchemy, psycopg2-binary, etc.
+├── agent/                  # Daily agent logic
+│   ├── daily_runner.py     # main script with LangChain agent, search, DB update
+│   ├── calculations.py     # S-curve, duration, progress functions
+│   └── requirements.txt    # langchain, serpapi (or other search), sqlalchemy, etc.
+├── migrations/             # Optional: Alembic for schema changes
+├── Dockerfile              # Optional but recommended (see below)
+├── render.yaml             # Blueprint for multi-service deploy (easiest)
+└── .env.example            # Template for secrets
