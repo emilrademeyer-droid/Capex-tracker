@@ -1,4 +1,4 @@
 streamlit==1.31.1
-pandas==2.2.2
+pandas==2.1.4          # or 2.2.1 – both known to build cleanly on Render's Python 3.12
 sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
