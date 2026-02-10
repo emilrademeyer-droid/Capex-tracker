@@ -1,4 +1,4 @@
 sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
-numpy==1.26.4
-# We will add serpapi or other search library later when you choose one
+numpy==1.26.4          # keep this – it's fine
+# pandas not needed here yet, but if you add it later → use ==2.1.4
