@@ -1,38 +1,27 @@
-services:
-  - type: web
-    name: capex-ui
-    env: python
-    plan: free               # change to starter later if needed
-    branch: main
-    buildCommand: pip install --no-cache-dir -r app/requirements.txt
-    startCommand: streamlit run app/app.py --server.port $PORT --server.headless true
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.3
-      - key: DATABASE_URL
-        fromDatabase:
-          name: capex-db
-          property: connectionString
+import streamlit as st
+import os
+from sqlalchemy import create_engine, text
 
-  - type: cron
-    name: capex-daily-search
-    env: python
-    plan: free
-    branch: main
-    buildCommand: pip install --no-cache-dir -r agent/requirements.txt
-    startCommand: python agent/daily_runner.py
-    schedule: "0 0 * * *"          # every day at 00:00 UTC
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.3
-      - key: DATABASE_URL
-        fromDatabase:
-          name: capex-db
-          property: connectionString
+st.set_page_config(page_title="Capex Tracker", layout="wide")
 
-  - type: pserv
-    name: capex-db
-    plan: starter-0_25GB           # ~$7/mo – smallest paid Postgres
-    database:
-      databaseName: capex_tracker
-      user: capex
+st.title("Capex Tracker Dashboard")
+st.write("Welcome! This is your construction projects tracker.")
+st.write("Current status: Database connection test...")
+
+# Try to connect to database (Render provides this URL automatically)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    try:
+        # Fix postgres:// → postgresql:// for SQLAlchemy
+        if DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        engine = create_engine(DATABASE_URL)
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            st.success("Database connection successful! (SELECT 1 worked)")
+    except Exception as e:
+        st.error(f"Database connection failed: {str(e)}")
+        st.info("The tables are not created yet – we will add that in the next step.")
+else:
+    st.warning("No DATABASE_URL found. This is normal during local testing, but on Render it should appear automatically.")
