@@ -34,9 +34,9 @@ def search_serper(query):
         return []
 
 queries = [
-    "new hotel OR data center OR airport OR high-rise construction project budget OR cost OR capex $10 million OR billion announced OR started OR planned 2026 OR 2025",
-    "construction project OR infrastructure development OR tower OR hotel OR data center budget over $10 million site:enr.com OR site:constructiondive.com OR site:reuters.com OR site:bloomberg.com",
-    "L&T OR Larsen & Toubro OR Saudi OR UAE OR Dubai construction contract OR project $10 million+"
+    "new hotel construction project budget over $10 million announced after:2026-02-01",
+    "data center build OR expansion budget $10 million+ after:2026-02-01",
+    "airport OR high-rise tower construction project capex over $10 million 2026"
 ]
 
 session = Session()
@@ -66,21 +66,22 @@ try:
                     print(f"Skipped duplicate: {title}")
                     continue
 
-                # Basic extraction (improve later with better NLP if needed)
-                budget_match = re.search(r'(\$[\d.,]+ ?(million|billion))', snippet + title, re.IGNORECASE)
+                # Extract budget, location, sector from snippet + title
+                text = title + " " + snippet
+                budget_match = re.search(r'(\$[\d.,]+ ?(million|billion))', text, re.I)
                 budget = budget_match.group(1) if budget_match else None
 
-                location_match = re.search(r'(Dubai|UAE|Indiana|Louisiana|Texas|Pennsylvania|New Mexico|Utah|Wyoming|Georgetown|Wichita|Lebanon|Egypt|Saudi)', snippet + title, re.IGNORECASE)
+                location_match = re.search(r'(Dubai|UAE|Saudi|Indiana|Louisiana|Pennsylvania|Texas|Utah|Wyoming|Georgetown|Wichita|Lebanon|Egypt)', text, re.I)
                 location = location_match.group(1) if location_match else "Unknown"
 
                 sector = "Unknown"
-                if any(word in (title + snippet).lower() for word in ["hotel", "hospitality"]):
+                if any(word in text.lower() for word in ["hotel", "hospitality"]):
                     sector = "Hospitality"
-                elif any(word in (title + snippet).lower() for word in ["data center", "ai", "gigawatt"]):
+                elif any(word in text.lower() for word in ["data center", "ai", "gigawatt"]):
                     sector = "Data Centers"
-                elif any(word in (title + snippet).lower() for word in ["airport", "high-rise", "tower"]):
+                elif any(word in text.lower() for word in ["airport", "high-rise", "tower"]):
                     sector = "Infrastructure / High-Rise"
-                elif "lunar" in (title + snippet).lower():
+                elif "lunar" in text.lower():
                     sector = "Space / Lunar"
 
                 # Insert
@@ -90,7 +91,7 @@ try:
                             name, status, last_updated, announcement_date, 
                             link, budget_usd, country, industry_sector
                         ) VALUES (
-                            :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE,
+                            :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE, 
                             :link, :budget, :country, :sector
                         )
                     """),
