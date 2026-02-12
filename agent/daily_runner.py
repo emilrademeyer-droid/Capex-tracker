@@ -38,7 +38,7 @@ def calculate_s_curve(budget, duration_months):
     if not budget or duration_months <= 0:
         return None
     time = np.linspace(0, 1, int(duration_months) + 1)
-    k = 10  # steepness
+    k = 10
     midpoint = 0.55
     cash_percent = 1 / (1 + np.exp(-k * (time - midpoint)))
     cash_percent = cash_percent / cash_percent[-1]
@@ -69,8 +69,8 @@ try:
             snippet = result.get("snippet", "")
 
             try:
-                # Deduplicate
-                exists = session.execute(
+                # Deduplicate: fetch existing row
+                existing = session.execute(
                     text("SELECT id, budget_usd, construction_start_date, construction_completion_date FROM projects WHERE link = :link OR name = :name"),
                     {"link": link, "name": title}
                 ).fetchone()
@@ -107,24 +107,30 @@ try:
                 end_str = end_match.group(2) if end_match else None
                 end_date = datetime.datetime.strptime(end_str, '%Y-%m-%d').date() if end_str and '-' in end_str else (datetime.datetime.strptime(end_str, '%Y').date() if end_str else None)
 
-                duration = ((end_date - start_date).days / 30.4375) if start_date and end_date else None  # average month length
+                duration = ((end_date - start_date).days / 30.4375) if start_date and end_date else None
 
-                if exists:
-                    # Update existing row if better data
-                    project_id = exists[0]
+                progress = None
+                capex_curve = None
+                if duration and start_date:
+                    progress = min(max(((datetime.date.today() - start_date).days / (duration * 30.4375)) * 100, 0), 100)
+                    capex_curve = calculate_s_curve(budget or (existing[1] if existing else None), duration)
+
+                if existing:
+                    # Update existing
+                    project_id = existing[0]
                     updates = {}
-                    if budget and not exists[1]:
+                    if budget and not existing[1]:
                         updates["budget_usd"] = budget
-                    if start_date and not exists[2]:
+                    if start_date and not existing[2]:
                         updates["construction_start_date"] = start_date
-                    if end_date and not exists[3]:
+                    if end_date and not existing[3]:
                         updates["construction_completion_date"] = end_date
                     if duration:
                         updates["duration_months"] = duration
-                    if duration and start_date:
-                        progress = ((datetime.date.today() - start_date).days / (duration * 30.4375)) * 100
-                        updates["progress_percent"] = min(max(progress, 0), 100)
-                        updates["capex_curve"] = calculate_s_curve(budget or exists[1], duration)
+                    if progress is not None:
+                        updates["progress_percent"] = progress
+                    if capex_curve is not None:
+                        updates["capex_curve"] = capex_curve
                     if updates:
                         set_clause = ", ".join(f"{k} = :{k}" for k in updates)
                         session.execute(
@@ -132,7 +138,7 @@ try:
                             {**updates, "id": project_id}
                         )
                         updated_projects += 1
-                        print(f"Updated existing project: {title}")
+                        print(f"Updated project: {title} | Progress: {progress}% | Capex Curve: {capex_curve}")
                 else:
                     # Insert new
                     session.execute(
@@ -143,7 +149,7 @@ try:
                                 construction_start_date, construction_completion_date,
                                 duration_months, progress_percent, capex_curve
                             ) VALUES (
-                                :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE,
+                                :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE, 
                                 :link, :budget, :country, :sector,
                                 :start, :end, :duration, :progress, :capex_curve
                             )
@@ -157,12 +163,12 @@ try:
                             "start": start_date,
                             "end": end_date,
                             "duration": duration,
-                            "progress": min(max(((datetime.date.today() - start_date).days / (duration * 30.4375)) * 100, 0), 100) if duration and start_date else None,
-                            "capex_curve": calculate_s_curve(budget, duration)
+                            "progress": progress,
+                            "capex_curve": capex_curve
                         }
                     )
                     new_projects += 1
-                    print(f"Inserted new project: {title} | Budget: {budget} | Duration: {duration} | Progress: {progress if 'progress' in locals() else 'N/A'}")
+                    print(f"Inserted new project: {title} | Budget: {budget} | Duration: {duration} | Progress: {progress}% | Capex Curve: {capex_curve}")
 
             except Exception as e:
                 print(f"Error processing '{title}': {str(e)}")
