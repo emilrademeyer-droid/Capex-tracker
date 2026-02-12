@@ -24,7 +24,7 @@ Session = sessionmaker(bind=engine)
 
 def search_serper(query):
     url = "https://google.serper.dev/search"
-    payload = {"q": query, "num": 15, "tbs": "qdr:w"}
+    payload = {"q": query, "num": 15, "tbs": "qdr:w"}  # past week
     headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=15)
@@ -69,7 +69,7 @@ try:
             snippet = result.get("snippet", "")
 
             try:
-                # Safe deduplication check
+                # Deduplication check - fetch existing row safely
                 existing = session.execute(
                     text("SELECT id, budget_usd, construction_start_date, construction_completion_date FROM projects WHERE link = :link OR name = :name"),
                     {"link": link, "name": title}
@@ -98,7 +98,7 @@ try:
                 elif "lunar" in lower_text or "moon" in lower_text:
                     sector = "Space / Lunar"
 
-                # Extract dates (basic)
+                # Extract dates
                 start_match = re.search(r'(start|begin|break ground|construction start|announced|planned) (\d{4}(?:-\d{2}-\d{2})?)', text, re.I)
                 start_str = start_match.group(2) if start_match else None
                 start_date = datetime.datetime.strptime(start_str, '%Y-%m-%d').date() if start_str and '-' in start_str else (datetime.datetime.strptime(start_str, '%Y').date() if start_str else None)
@@ -116,7 +116,6 @@ try:
                     capex_curve = calculate_s_curve(budget or (existing[1] if existing else None), duration)
 
                 if existing:
-                    # Update existing
                     project_id = existing[0]
                     updates = {}
                     if budget and not existing[1]:
@@ -129,54 +128,4 @@ try:
                         updates["duration_months"] = duration
                     if progress is not None:
                         updates["progress_percent"] = progress
-                    if capex_curve is not None:
-                        updates["capex_curve"] = capex_curve
-                    if updates:
-                        set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-                        session.execute(
-                            text(f"UPDATE projects SET {set_clause}, last_updated = CURRENT_DATE WHERE id = :id"),
-                            {**updates, "id": project_id}
-                        )
-                        updated_projects += 1
-                        print(f"Updated project: {title} | Progress: {progress}% | Capex Curve: {capex_curve}")
-                else:
-                    # Insert new
-                    session.execute(
-                        text("""
-                            INSERT INTO projects (
-                                name, status, last_updated, announcement_date, 
-                                link, budget_usd, country, industry_sector,
-                                construction_start_date, construction_completion_date,
-                                duration_months, progress_percent, capex_curve
-                            ) VALUES (
-                                :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE, 
-                                :link, :budget, :country, :sector,
-                                :start, :end, :duration, :progress, :capex_curve
-                            )
-                        """),
-                        {
-                            "name": title,
-                            "link": link,
-                            "budget": budget,
-                            "country": location,
-                            "sector": sector,
-                            "start": start_date,
-                            "end": end_date,
-                            "duration": duration,
-                            "progress": progress,
-                            "capex_curve": capex_curve
-                        }
-                    )
-                    new_projects += 1
-                    print(f"Inserted new project: {title} | Budget: {budget} | Duration: {duration} | Progress: {progress}% | Capex Curve: {capex_curve}")
-
-            except Exception as e:
-                print(f"Error processing '{title}': {str(e)}")
-
-    session.commit()
-    print(f"Daily run finished. Added {new_projects} new | Updated {updated_projects} existing projects.")
-except Exception as e:
-    print(f"Unexpected error: {str(e)}")
-    session.rollback()
-finally:
-    session.close()
+                    if capex_curve is
