@@ -1,6 +1,7 @@
 import os
 import datetime
 import requests
+import re
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,10 +23,10 @@ Session = sessionmaker(bind=engine)
 
 def search_serper(query):
     url = "https://google.serper.dev/search"
-    payload = {"q": query, "num": 10, "tbs": "qdr:d"}
+    payload = {"q": query, "num": 15, "tbs": "qdr:w"}  # past week, more results
     headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
         response.raise_for_status()
         return response.json().get("organic", [])
     except Exception as e:
@@ -33,9 +34,9 @@ def search_serper(query):
         return []
 
 queries = [
-    "new hotel construction project budget over $10 million announced after:2026-02-01",
-    "data center build OR expansion budget $10 million+ after:2026-02-01",
-    "airport OR high-rise tower construction project capex over $10 million 2026"
+    "new hotel OR data center OR airport OR high-rise construction project budget OR cost OR capex $10 million OR billion announced OR started OR planned 2026 OR 2025",
+    "construction project OR infrastructure development OR tower OR hotel OR data center budget over $10 million site:enr.com OR site:constructiondive.com OR site:reuters.com OR site:bloomberg.com",
+    "L&T OR Larsen & Toubro OR Saudi OR UAE OR Dubai construction contract OR project $10 million+"
 ]
 
 session = Session()
@@ -52,23 +53,58 @@ try:
         for result in results:
             title = result.get("title", "")[:255]
             link = result.get("link", "")[:255]
+            snippet = result.get("snippet", "")
 
             try:
+                # Check for duplicate
                 exists = session.execute(
                     text("SELECT 1 FROM projects WHERE link = :link OR name = :name"),
                     {"link": link, "name": title}
                 ).scalar()
 
-                if not exists:
-                    session.execute(
-                        text("""
-                            INSERT INTO projects (name, status, last_updated, announcement_date, link)
-                            VALUES (:name, 'Review Needed', CURRENT_DATE, CURRENT_DATE, :link)
-                        """),
-                        {"name": title, "link": link}
-                    )
-                    new_projects += 1
-                    print(f"Inserted: {title} (link: {link})")
+                if exists:
+                    print(f"Skipped duplicate: {title}")
+                    continue
+
+                # Basic extraction (improve later with better NLP if needed)
+                budget_match = re.search(r'(\$[\d.,]+ ?(million|billion))', snippet + title, re.IGNORECASE)
+                budget = budget_match.group(1) if budget_match else None
+
+                location_match = re.search(r'(Dubai|UAE|Indiana|Louisiana|Texas|Pennsylvania|New Mexico|Utah|Wyoming|Georgetown|Wichita|Lebanon|Egypt|Saudi)', snippet + title, re.IGNORECASE)
+                location = location_match.group(1) if location_match else "Unknown"
+
+                sector = "Unknown"
+                if any(word in (title + snippet).lower() for word in ["hotel", "hospitality"]):
+                    sector = "Hospitality"
+                elif any(word in (title + snippet).lower() for word in ["data center", "ai", "gigawatt"]):
+                    sector = "Data Centers"
+                elif any(word in (title + snippet).lower() for word in ["airport", "high-rise", "tower"]):
+                    sector = "Infrastructure / High-Rise"
+                elif "lunar" in (title + snippet).lower():
+                    sector = "Space / Lunar"
+
+                # Insert
+                session.execute(
+                    text("""
+                        INSERT INTO projects (
+                            name, status, last_updated, announcement_date, 
+                            link, budget_usd, country, industry_sector
+                        ) VALUES (
+                            :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE,
+                            :link, :budget, :country, :sector
+                        )
+                    """),
+                    {
+                        "name": title,
+                        "link": link,
+                        "budget": budget,
+                        "country": location,
+                        "sector": sector
+                    }
+                )
+                new_projects += 1
+                print(f"Inserted: {title} | Sector: {sector} | Budget: {budget} | Location: {location}")
+
             except Exception as e:
                 print(f"Insert skipped for '{title}': {str(e)}")
 
