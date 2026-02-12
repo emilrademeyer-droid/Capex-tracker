@@ -34,17 +34,16 @@ def search_serper(query):
         print(f"Serper error for '{query}': {str(e)}")
         return []
 
-def s_curve(budget, duration_months):
-    if duration_months <= 0 or budget is None:
+def calculate_s_curve(budget, duration_months):
+    if not budget or duration_months <= 0:
         return None
-    time = np.arange(0, duration_months + 1)
-    percent_time = time / duration_months
+    time = np.linspace(0, 1, int(duration_months) + 1)
     k = 10  # steepness
     midpoint = 0.55
-    cash_percent = 1 / (1 + np.exp(-k * (percent_time - midpoint)))
-    cash_percent = cash_percent / cash_percent.max()
+    cash_percent = 1 / (1 + np.exp(-k * (time - midpoint)))
+    cash_percent = cash_percent / cash_percent[-1]
     monthly_spend = np.diff(cash_percent, prepend=0) * budget
-    return monthly_spend.tolist()
+    return [round(x, 2) for x in monthly_spend.tolist()]
 
 queries = [
     "new hotel construction project budget over $10 million announced after:2026-02-01",
@@ -54,6 +53,7 @@ queries = [
 
 session = Session()
 new_projects = 0
+updated_projects = 0
 
 try:
     print("Database connection OK")
@@ -69,24 +69,24 @@ try:
             snippet = result.get("snippet", "")
 
             try:
-                # Check duplicate
+                # Deduplicate
                 exists = session.execute(
-                    text("SELECT 1 FROM projects WHERE link = :link OR name = :name"),
+                    text("SELECT id, budget_usd, construction_start_date, construction_completion_date FROM projects WHERE link = :link OR name = :name"),
                     {"link": link, "name": title}
-                ).scalar()
-
-                if exists:
-                    print(f"Skipped duplicate: {title}")
-                    continue
+                ).fetchone()
 
                 text = title + " " + snippet
+
+                # Extract budget
                 budget_match = re.search(r'(\$[\d.,]+ ?(million|billion))', text, re.I)
                 budget_str = budget_match.group(1) if budget_match else None
                 budget = float(re.sub(r'[^\d.]', '', budget_str)) * (1e6 if "million" in (budget_str or "").lower() else 1e9) if budget_str else None
 
-                location_match = re.search(r'(Dubai|UAE|Saudi|Indiana|Louisiana|Pennsylvania|Texas|Utah|Wyoming|Georgetown|Wichita|Lebanon|Egypt)', text, re.I)
+                # Extract location
+                location_match = re.search(r'(Dubai|UAE|Saudi|Indiana|Louisiana|Pennsylvania|Texas|Utah|Wyoming|Georgetown|Wichita|Lebanon|Egypt|Moon|Lunar)', text, re.I)
                 location = location_match.group(1) if location_match else "Unknown"
 
+                # Extract sector
                 sector = "Unknown"
                 lower_text = text.lower()
                 if "hotel" in lower_text or "hospitality" in lower_text:
@@ -95,57 +95,80 @@ try:
                     sector = "Data Centers"
                 elif "airport" in lower_text or "high-rise" in lower_text or "tower" in lower_text:
                     sector = "Infrastructure / High-Rise"
-                elif "lunar" in lower_text:
+                elif "lunar" in lower_text or "moon" in lower_text:
                     sector = "Space / Lunar"
 
-                # Extract dates (basic)
-                start_match = re.search(r'(start|begin|break ground|construction start) (\d{4}-\d{2}-\d{2}|\d{4})', text, re.I)
-                start_date = datetime.datetime.strptime(start_match.group(2), '%Y-%m-%d' if '-' in start_match.group(2) else '%Y').date() if start_match else None
+                # Extract dates
+                start_match = re.search(r'(start|begin|break ground|construction start|announced|planned) (\d{4}(?:-\d{2}-\d{2})?)', text, re.I)
+                start_str = start_match.group(2) if start_match else None
+                start_date = datetime.datetime.strptime(start_str, '%Y-%m-%d').date() if start_str and '-' in start_str else (datetime.datetime.strptime(start_str, '%Y').date() if start_str else None)
 
-                end_match = re.search(r'(complete|finish|open|completion) (\d{4}-\d{2}-\d{2}|\d{4})', text, re.I)
-                end_date = datetime.datetime.strptime(end_match.group(2), '%Y-%m-%d' if '-' in end_match.group(2) else '%Y').date() if end_match else None
+                end_match = re.search(r'(complete|finish|open|completion|deliver) (\d{4}(?:-\d{2}-\d{2})?)', text, re.I)
+                end_str = end_match.group(2) if end_match else None
+                end_date = datetime.datetime.strptime(end_str, '%Y-%m-%d').date() if end_str and '-' in end_str else (datetime.datetime.strptime(end_str, '%Y').date() if end_str else None)
 
-                duration = ((end_date - start_date).days / 30) if start_date and end_date else None
+                duration = ((end_date - start_date).days / 30.4375) if start_date and end_date else None  # average month length
 
-                progress = ((datetime.date.today() - start_date).days / (duration * 30)) * 100 if duration and start_date else None
-                progress = min(max(progress, 0), 100) if progress else None
-
-                capex_curve = s_curve(budget, duration) if budget and duration else None
-
-                session.execute(
-                    text("""
-                        INSERT INTO projects (
-                            name, status, last_updated, announcement_date, 
-                            link, budget_usd, country, industry_sector, 
-                            construction_start_date, construction_completion_date, 
-                            duration_months, progress_percent, capex_curve
-                        ) VALUES (
-                            :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE, 
-                            :link, :budget, :country, :sector, 
-                            :start, :end, :duration, :progress, :capex_curve
+                if exists:
+                    # Update existing row if better data
+                    project_id = exists[0]
+                    updates = {}
+                    if budget and not exists[1]:
+                        updates["budget_usd"] = budget
+                    if start_date and not exists[2]:
+                        updates["construction_start_date"] = start_date
+                    if end_date and not exists[3]:
+                        updates["construction_completion_date"] = end_date
+                    if duration:
+                        updates["duration_months"] = duration
+                    if duration and start_date:
+                        progress = ((datetime.date.today() - start_date).days / (duration * 30.4375)) * 100
+                        updates["progress_percent"] = min(max(progress, 0), 100)
+                        updates["capex_curve"] = calculate_s_curve(budget or exists[1], duration)
+                    if updates:
+                        set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+                        session.execute(
+                            text(f"UPDATE projects SET {set_clause}, last_updated = CURRENT_DATE WHERE id = :id"),
+                            {**updates, "id": project_id}
                         )
-                    """),
-                    {
-                        "name": title,
-                        "link": link,
-                        "budget": budget,
-                        "country": location,
-                        "sector": sector,
-                        "start": start_date,
-                        "end": end_date,
-                        "duration": duration,
-                        "progress": progress,
-                        "capex_curve": capex_curve
-                    }
-                )
-                new_projects += 1
-                print(f"Inserted: {title} | Sector: {sector} | Budget: {budget} | Location: {location} | Duration: {duration} | Progress: {progress} | Capex Curve: {capex_curve}")
+                        updated_projects += 1
+                        print(f"Updated existing project: {title}")
+                else:
+                    # Insert new
+                    session.execute(
+                        text("""
+                            INSERT INTO projects (
+                                name, status, last_updated, announcement_date, 
+                                link, budget_usd, country, industry_sector,
+                                construction_start_date, construction_completion_date,
+                                duration_months, progress_percent, capex_curve
+                            ) VALUES (
+                                :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE,
+                                :link, :budget, :country, :sector,
+                                :start, :end, :duration, :progress, :capex_curve
+                            )
+                        """),
+                        {
+                            "name": title,
+                            "link": link,
+                            "budget": budget,
+                            "country": location,
+                            "sector": sector,
+                            "start": start_date,
+                            "end": end_date,
+                            "duration": duration,
+                            "progress": min(max(((datetime.date.today() - start_date).days / (duration * 30.4375)) * 100, 0), 100) if duration and start_date else None,
+                            "capex_curve": calculate_s_curve(budget, duration)
+                        }
+                    )
+                    new_projects += 1
+                    print(f"Inserted new project: {title} | Budget: {budget} | Duration: {duration} | Progress: {progress if 'progress' in locals() else 'N/A'}")
 
             except Exception as e:
-                print(f"Insert skipped for '{title}': {str(e)}")
+                print(f"Error processing '{title}': {str(e)}")
 
     session.commit()
-    print(f"Daily run finished. Added {new_projects} new projects.")
+    print(f"Daily run finished. Added {new_projects} new | Updated {updated_projects} existing projects.")
 except Exception as e:
     print(f"Unexpected error: {str(e)}")
     session.rollback()
