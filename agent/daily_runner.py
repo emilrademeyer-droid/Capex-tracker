@@ -128,4 +128,53 @@ try:
                         updates["duration_months"] = duration
                     if progress is not None:
                         updates["progress_percent"] = progress
-                    if capex_curve is
+                    if capex_curve is not None:
+                        updates["capex_curve"] = capex_curve
+                    if updates:
+                        set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+                        session.execute(
+                            text(f"UPDATE projects SET {set_clause}, last_updated = CURRENT_DATE WHERE id = :id"),
+                            {**updates, "id": project_id}
+                        )
+                        updated_projects += 1
+                        print(f"Updated project: {title} | Progress: {progress}% | Capex Curve: {capex_curve}")
+                else:
+                    session.execute(
+                        text("""
+                            INSERT INTO projects (
+                                name, status, last_updated, announcement_date, 
+                                link, budget_usd, country, industry_sector,
+                                construction_start_date, construction_completion_date,
+                                duration_months, progress_percent, capex_curve
+                            ) VALUES (
+                                :name, 'Pending Review', CURRENT_DATE, CURRENT_DATE, 
+                                :link, :budget, :country, :sector,
+                                :start, :end, :duration, :progress, :capex_curve
+                            )
+                        """),
+                        {
+                            "name": title,
+                            "link": link,
+                            "budget": budget,
+                            "country": location,
+                            "sector": sector,
+                            "start": start_date,
+                            "end": end_date,
+                            "duration": duration,
+                            "progress": progress,
+                            "capex_curve": capex_curve
+                        }
+                    )
+                    new_projects += 1
+                    print(f"Inserted new project: {title} | Budget: {budget} | Duration: {duration} | Progress: {progress}% | Capex Curve: {capex_curve}")
+
+            except Exception as e:
+                print(f"Error processing '{title}': {str(e)}")
+
+    session.commit()
+    print(f"Daily run finished. Added {new_projects} new | Updated {updated_projects} existing projects.")
+except Exception as e:
+    print(f"Unexpected error: {str(e)}")
+    session.rollback()
+finally:
+    session.close()
