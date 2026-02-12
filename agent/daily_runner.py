@@ -69,7 +69,7 @@ try:
             snippet = result.get("snippet", "")
 
             try:
-                # Deduplicate: fetch existing row
+                # Safe deduplication check
                 existing = session.execute(
                     text("SELECT id, budget_usd, construction_start_date, construction_completion_date FROM projects WHERE link = :link OR name = :name"),
                     {"link": link, "name": title}
@@ -98,7 +98,7 @@ try:
                 elif "lunar" in lower_text or "moon" in lower_text:
                     sector = "Space / Lunar"
 
-                # Extract dates
+                # Extract dates (basic)
                 start_match = re.search(r'(start|begin|break ground|construction start|announced|planned) (\d{4}(?:-\d{2}-\d{2})?)', text, re.I)
                 start_str = start_match.group(2) if start_match else None
                 start_date = datetime.datetime.strptime(start_str, '%Y-%m-%d').date() if start_str and '-' in start_str else (datetime.datetime.strptime(start_str, '%Y').date() if start_str else None)
