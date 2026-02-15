@@ -33,12 +33,15 @@ def search_serper(query):
         return []
 
 queries = [
-    "new hotel construction project budget over $10 million",
-    "data center build OR expansion budget $10 million+",
-    "airport OR high-rise tower construction project capex over $10 million"
-    "residential project with capex over $10 million"
-    "roads or transport project with a budget over $10 million"
-    "rail or metro project with a budget over $10 million"
+    "new hotel construction project budget greater than $10 million",
+    "data centre or center build OR expansion budget greater than $10 million",
+    "airport OR high-rise tower construction project with a budget greater than $10 million"
+    "office or commercial project with a budget greater than $10 million"
+    "road or transport project with a budget greater than $10 million"
+    "rail or metro project with a budget greater than $10 million"
+    "house or villa or residential or apartment project with a budget greater than $10 million"
+    "refinery or oil or gas facility with a budget greater than $10 million"
+    "water or wastewater processing facility or water pipeline with a budget greater than $10 million" 
 ]
 
 session = Session()
